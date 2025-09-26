@@ -1,0 +1,185 @@
+actions {
+  http {
+    ClientConnDisconnSubMonitorPush {
+      connector = "device-security-service"
+      created_at = 1758290812732
+      description = "推送客户端连接/断开/订阅事件"
+      last_modified_at = 1758290941710
+      parameters {
+        body = """~
+          {
+            "event": ${event},
+            "timestamp": ${timestamp},
+            "peer_name": ${peer_name},
+            "user_name": ${user_name}
+          }~"""
+        headers {X-Request-Source = EMQX, content-type = "application/json"}
+        max_retries = 2
+        method = post
+        path = "/webhook/${clientid}"
+      }
+    }
+  }
+}
+rule_engine {
+  rules {
+    ClientConnDisconnSubMonitor {
+      actions = [
+        "http:ClientConnDisconnSubMonitorPush"
+      ]
+      description = "监听客户端连接/断开/订阅事件"
+      metadata {last_modified_at = 1758290947227}
+      sql = """~
+        SELECT
+          event,
+          timestamp,
+          peername as peer_name,
+          username as user_name
+        FROM
+          "$events/client_connected",
+          "$events/client_disconnected",
+          "$events/session_subscribed"~"""
+    }
+  }
+}
+authentication = [
+  {
+    backend = built_in_database
+    mechanism = password_based
+    password_hash_algorithm {name = sha256, salt_position = suffix}
+    user_id_type = username
+  },
+  {
+    body {
+      pass_word = "${password}"
+      peer_host = "${peerhost}"
+      user_name = "${username}"
+    }
+    headers {content-type = "application/json", x-request-source = EMQX}
+    mechanism = password_based
+    backend = http
+    method = post
+    url = "http://device-security-service/api/v1/authn/${clientid}"
+  }
+]
+authorization {
+  deny_action = disconnect
+  no_match = deny
+  sources = [
+    {
+      enable = true
+      path = "${EMQX_ETC_DIR}/acl.conf"
+      type = file
+    }
+    {
+      body {
+        action = "${action}"
+        proto_name = "${proto_name}"
+        topic = "${topic}"
+        user_name = "${username}"
+      }
+      headers {content-type = "application/json", x-request-source = EMQX}
+      method = post
+      type = http
+      url = "http://device-security-service/api/v1/authz/${clientid}"
+    }
+  ]
+}
+connectors {
+  http {
+    device-security-service {
+      description = "设备认证和授权服务"
+      headers {X-Request-Source = EMQX, content-type = "application/json"}
+      url = "http://device-security-service/api/v1"
+    }
+  }
+}
+listeners {
+  ssl { default { enable = false } }
+  wss { default { enable = false } }
+  tcp {
+    default {
+      acceptors = 2
+      access_rules = [ "allow all" ]
+      bind = "0.0.0.0:1883"
+      enable = true
+      enable_authn = true
+
+      max_connections = 5000
+      max_conn_rate = "50/s"
+      messages_rate = "15/s"
+      bytes_rate = "10MB/s"
+
+      mountpoint = ""
+      tcp_options {
+        active_n = 50
+        backlog = 256
+        buffer = "8KB"
+      }
+      zone = default
+    }
+  }
+  ws {
+    default {
+      acceptors = 2
+      access_rules = [ "allow all" ]
+      bind = "0.0.0.0:8083"
+      enable = true
+      enable_authn = true
+      
+      max_connections = 2000
+      max_conn_rate = "30/s"
+      messages_rate = "10/s"
+      bytes_rate = "5MB/s"
+
+      mountpoint = ""
+      tcp_options {
+        active_n = 50
+        backlog = 512
+        high_watermark = "512KB"
+      }
+      websocket {
+        deflate_opts { mem_level = 5 }
+        idle_timeout = "3600s"
+        max_frame_size = 1048576
+      }
+      zone = default
+    }
+  }
+}
+log {
+  console { enable = false }
+  file {
+    default {
+      enable = true
+      formatter = json
+      level = info
+      path = "${EMQX_LOG_DIR}/emqx.log"
+      rotation_count = 10
+      rotation_size = "1GB"
+    }
+  }
+}
+mqtt {
+  max_qos_allowed = 0
+  max_topic_alias = 0
+  wildcard_subscription = true
+  shared_subscription = true
+  exclusive_subscription = true
+  strict_mode = true
+  keepalive_multiplier = 1.5
+  server_keepalive = 15
+  idle_timeout = "30s"
+  keepalive_check_interval = "10s"
+
+  session_expiry_interval = "0s"
+  mqueue_store_qos0 = false
+}
+retainer { enable = false }
+flapping_detect {
+  enable = true
+  max_count  =  15
+  window_time  =  1m
+  ban_time  =  5m
+}
+

@@ -8,10 +8,10 @@ actions {
       parameters {
         body = """~
           {
-            "event": ${event},
+            "event": "${event}",
             "timestamp": ${timestamp},
-            "peer_name": ${peer_name},
-            "user_name": ${user_name}
+            "peer_name": "${peer_name}",
+            "user_name": "${user_name}"
           }~"""
         headers {X-Request-Source = EMQX, content-type = "application/json"}
         max_retries = 2
@@ -31,6 +31,7 @@ rule_engine {
       metadata {last_modified_at = 1758290947227}
       sql = """~
         SELECT
+          clientid,
           event,
           timestamp,
           peername as peer_name,
